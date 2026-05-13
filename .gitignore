@@ -1,16 +1,26 @@
+# Dependencias
 node_modules/
+
+# Compilación
 dist/
-build/
+
+# Variables de entorno
 .env
-.DS_Store
+.env.*
+!.env.example
+
+# Logs
+logs/
 *.log
-*.cache
-*.tmp
-.idea/
+npm-debug.log*
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Editor
 .vscode/
-*.sublime-project
-*.sublime-workspace
-*.swp
-*.bak
-*.zip
-*.tar.gz  
+.idea/
+
+# Coverage
+coverage/
