@@ -1,3 +1,4 @@
+
 # MS-Auth — Sanos y Salvos
 
 Microservicio de autenticación de la plataforma **Sanos y Salvos**. Gestiona el ciclo completo de identidad: registro de credenciales, inicio de sesión con emisión de tokens JWT, renovación automática de sesión mediante Refresh Token Rotation, cierre de sesión con invalidación inmediata, recuperación de contraseña vía OTP por correo electrónico y cambio de contraseña autenticado.
