@@ -3,6 +3,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 export interface CachedUserData {
   name: string;
   avatarUrl?: string;
+  tipo?: 'ciudadano' | 'institucion';
   lastUpdated: Date;
 }
 

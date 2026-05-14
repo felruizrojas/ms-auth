@@ -127,6 +127,25 @@ router.post('/logout', AuthController.logout);
 
 /**
  * @swagger
+ * /api/auth/me:
+ *   get:
+ *     summary: Obtener perfil del usuario autenticado (desde caché Redis)
+ *     tags: [Auth]
+ *     description: Devuelve los datos de perfil cacheados en Redis. Funciona aunque ms-users esté caído.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Datos del perfil
+ *       401:
+ *         description: Token requerido o inválido
+ *       404:
+ *         description: Usuario no encontrado
+ */
+router.get('/me', verifyToken, AuthController.getMe);
+
+/**
+ * @swagger
  * /api/auth/credentials/{id}/role:
  *   patch:
  *     summary: Actualizar rol de credencial
@@ -300,5 +319,8 @@ router.patch('/credentials/:id/deactivate', internalAuth, AuthController.deactiv
  *         description: Credencial eliminada correctamente
  */
 router.delete('/credentials/:id', internalAuth, AuthController.deleteCredential);
+
+// Interno — Buscar credential_id por email (usado por ms-soporte)
+router.post('/interno/por-email', internalAuth, AuthController.getCredentialByEmail);
 
 export default router;

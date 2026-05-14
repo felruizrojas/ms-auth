@@ -1,20 +1,20 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { v4 as uuidv4 } from 'uuid';
 import { AppDataSource } from '../config/db';
 import { Credential } from '../models/Credential';
 import { RefreshToken } from '../models/RefreshToken';
 import { RevokedToken } from '../models/RevokedToken';
 import { PasswordResetOtp } from '../models/PasswordResetOtp';
 import { sendOtpEmail } from '../utils/mailer';
+import { getUserCache } from './user-cache.service';
+import { CredentialFactory } from '../factories/CredentialFactory';
 
 const credentialRepo = () => AppDataSource.getRepository(Credential);
 const refreshTokenRepo = () => AppDataSource.getRepository(RefreshToken);
 const revokedTokenRepo = () => AppDataSource.getRepository(RevokedToken);
 const otpRepo = () => AppDataSource.getRepository(PasswordResetOtp);
 
-const ACCESS_TOKEN_TTL = 15 * 60;              // 15 minutos en segundos
-const REFRESH_TOKEN_TTL = 7 * 24 * 60 * 60;   // 7 días en segundos
+const ACCESS_TOKEN_TTL = 15 * 60; // 15 minutos en segundos
 
 // RF-01 — Login
 export const login = async (email: string, password: string) => {
@@ -41,15 +41,22 @@ export const login = async (email: string, password: string) => {
     if (oldest.length) await refreshTokenRepo().delete({ token: oldest[0].token });
   }
 
-  const refreshToken = uuidv4();
-  const refreshExpiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL * 1000);
-  await refreshTokenRepo().save({
-    token: refreshToken,
-    credential_id: credential.id,
-    expires_at: refreshExpiresAt,
-  });
+  const { token: refreshToken, ...refreshTokenData } = CredentialFactory.crearRefreshToken(credential.id);
+  await refreshTokenRepo().save({ token: refreshToken, ...refreshTokenData });
 
-  return { accessToken, refreshToken };
+  // Datos de usuario desde Redis; si no están, construir desde la credencial en DB
+  const cached = await getUserCache(credential.id);
+  const user = cached ?? {
+    id: credential.id,
+    email: credential.email,
+    role: credential.role,
+    permissions: credential.permissions,
+    name: credential.cached_data?.name ?? '',
+    avatarUrl: credential.cached_data?.avatarUrl,
+    status: credential.status,
+  };
+
+  return { accessToken, refreshToken, user };
 };
 
 // RF-02 — Refresh Token
@@ -74,13 +81,8 @@ export const refreshSession = async (token: string) => {
     { expiresIn: ACCESS_TOKEN_TTL }
   );
 
-  const newRefreshToken = uuidv4();
-  const newRefreshExpiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL * 1000);
-  await refreshTokenRepo().save({
-    token: newRefreshToken,
-    credential_id: credential.id,
-    expires_at: newRefreshExpiresAt,
-  });
+  const { token: newRefreshToken, ...newRefreshTokenData } = CredentialFactory.crearRefreshToken(credential.id);
+  await refreshTokenRepo().save({ token: newRefreshToken, ...newRefreshTokenData });
 
   return { accessToken, refreshToken: newRefreshToken };
 };
@@ -110,8 +112,7 @@ export const register = async (email: string, password: string, role: string = '
   const exists = await credentialRepo().findOne({ where: { email } });
   if (exists) throw new Error('El correo ya está registrado');
 
-  const password_hash = await bcrypt.hash(password, 10);
-  const credential = credentialRepo().create({ email, password_hash, role });
+  const credential = await CredentialFactory.crearCredencial(email, password, role);
   await credentialRepo().save(credential);
 
   return { id: credential.id, email: credential.email, role: credential.role };
@@ -125,11 +126,9 @@ export const forgotPassword = async (email: string) => {
   if (credential) {
     await otpRepo().delete({ email });
 
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expires_at = new Date(Date.now() + 10 * 60 * 1000);
-
-    await otpRepo().save({ email, code, expires_at, used: false });
-    await sendOtpEmail(email, code);
+    const otpData = CredentialFactory.crearOtp(email);
+    await otpRepo().save(otpData);
+    await sendOtpEmail(email, otpData.code);
   }
 
   return { message: 'Si el correo está registrado, recibirás un código de verificación' };
@@ -176,6 +175,26 @@ export const deleteCredential = async (credentialId: string) => {
   await credentialRepo().delete({ id: credentialId });
 };
 
+// Perfil desde caché Redis (fallback a DB si no hay entrada)
+export const getMe = async (credentialId: string) => {
+  const cached = await getUserCache(credentialId);
+  if (cached) return cached;
+
+  const credential = await credentialRepo().findOne({ where: { id: credentialId, is_active: true } });
+  if (!credential) throw Object.assign(new Error('Usuario no encontrado'), { status: 404 });
+
+  return {
+    id: credential.id,
+    email: credential.email,
+    role: credential.role,
+    permissions: credential.permissions,
+    name: credential.cached_data?.name ?? '',
+    avatarUrl: credential.cached_data?.avatarUrl,
+    status: credential.status,
+    tipo: credential.cached_data?.tipo ?? 'ciudadano',
+  };
+};
+
 // RF — Cambiar contraseña (usuario autenticado)
 export const changePassword = async (credentialId: string, currentPassword: string, newPassword: string) => {
   const credential = await credentialRepo().findOne({ where: { id: credentialId, is_active: true } });
@@ -188,4 +207,10 @@ export const changePassword = async (credentialId: string, currentPassword: stri
   await credentialRepo().update({ id: credentialId }, { password_hash });
 
   return { message: 'Contraseña actualizada correctamente' };
+};
+
+// Interno — Buscar credential_id por email (usado por ms-soporte para vincular tickets)
+export const getCredentialByEmail = async (email: string): Promise<{ id: string } | null> => {
+  const credential = await credentialRepo().findOne({ where: { email: email.toLowerCase(), is_active: true } });
+  return credential ? { id: credential.id } : null;
 };
