@@ -46,12 +46,15 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
+const ROLES_VALIDOS = ['ciudadano', 'veterinaria', 'municipalidad', 'moderador', 'administrador', 'superadmin'];
+
 // RF-05 — Llamado por MS-02, quien determina y envía el rol en el body
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password, role } = req.body;
     if (!email || !password) { errorResponse(res, 'Email y contraseña requeridos'); return; }
     if (!role) { errorResponse(res, 'Rol requerido'); return; }
+    if (!ROLES_VALIDOS.includes(role)) { errorResponse(res, 'Rol inválido'); return; }
     if (password.length < 6) { errorResponse(res, 'La contraseña debe tener al menos 6 caracteres'); return; }
     const data = await AuthService.register(email, password, role);
     successResponse(res, data, 201);
@@ -91,7 +94,9 @@ export const updateRole = async (req: Request, res: Response): Promise<void> => 
     const id = req.params.id as string;
     const { role } = req.body;
     if (!role) { errorResponse(res, 'Rol requerido'); return; }
+    if (!ROLES_VALIDOS.includes(role)) { errorResponse(res, 'Rol inválido'); return; }
     await AuthService.updateRole(id, role);
+    console.log(`[AUDIT] ${new Date().toISOString()} — rol actualizado id=${id} nuevo_rol=${role}`);
     successResponse(res, { message: 'Rol actualizado correctamente' });
   } catch (err: any) {
     errorResponse(res, err.message);
@@ -103,6 +108,7 @@ export const deactivateCredential = async (req: Request, res: Response): Promise
   try {
     const id = req.params.id as string;
     await AuthService.deactivateCredential(id);
+    console.log(`[AUDIT] ${new Date().toISOString()} — credencial desactivada id=${id}`);
     successResponse(res, { message: 'Credencial desactivada correctamente' });
   } catch (err: any) {
     errorResponse(res, err.message, 404);
@@ -122,12 +128,33 @@ export const changePassword = async (req: AuthRequest, res: Response): Promise<v
   }
 };
 
+// Perfil del usuario autenticado (desde Redis)
+export const getMe = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const data = await AuthService.getMe(req.user!.id);
+    successResponse(res, data);
+  } catch (err: any) {
+    errorResponse(res, err.message, err.status ?? 500);
+  }
+};
+
 // Interno — Eliminar credencial (rollback)
 export const deleteCredential = async (req: Request, res: Response): Promise<void> => {
   try {
     const id = req.params.id as string;
     await AuthService.deleteCredential(id);
     successResponse(res, { message: 'Credencial eliminada correctamente' });
+  } catch (err: any) {
+    errorResponse(res, err.message);
+  }
+};
+// Interno — Buscar credential_id por email
+export const getCredentialByEmail = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email } = req.body;
+    if (!email) { errorResponse(res, 'Email requerido'); return; }
+    const data = await AuthService.getCredentialByEmail(email);
+    successResponse(res, data ?? {});
   } catch (err: any) {
     errorResponse(res, err.message);
   }
