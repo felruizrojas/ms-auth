@@ -20,9 +20,9 @@ services:
       - ms_auth_net
     restart: unless-stopped
 
-  # ── Redis (cola de eventos hacia ms-users) ───────────────────────────────────
+  # ── Redis propio de ms-auth (caché KV de perfiles) ───────────────────────────
 
-  redis:
+  ms-auth-redis:
     container_name: ms-auth-redis
     image: redis:7-alpine
     volumes:
@@ -40,11 +40,8 @@ services:
 
   ms-auth:
     container_name: ms-auth
-    image: ms-auth
+    image: felruiz/ms-auth:latest
     platform: linux/amd64
-    build:
-      context: .
-      dockerfile: Dockerfile
     environment:
       NODE_ENV: production
       PORT: 3001
@@ -54,8 +51,10 @@ services:
       DB_USER: postgres
       DB_PASSWORD: postgres
       DB_NAME: ms_auth
-      # Redis / Bull
-      REDIS_URL: redis://redis:6379
+      # Bull — broker Redis externo
+      REDIS_BROKER_URL: redis://broker-redis:6379
+      # Caché KV — Redis propio de ms-auth
+      REDIS_CACHE_URL: redis://ms-auth-redis:6379
       # JWT
       JWT_SECRET: 6dcc110adf4dcde1015a418452ec8ca39780835ef83d28b13b165799a0525f264594d585080db90d09b8b9d4661507e40d67d5d2ae7673fb0b92719a18233213
       # Comunicación interna
@@ -68,10 +67,11 @@ services:
     depends_on:
       db-ms-auth:
         condition: service_healthy
-      redis:
+      ms-auth-redis:
         condition: service_healthy
     networks:
       - ms_auth_net
+      - broker_net
     restart: unless-stopped
 
 # ── Volúmenes y red ──────────────────────────────────────────────────────────
@@ -83,3 +83,6 @@ volumes:
 networks:
   ms_auth_net:
     driver: bridge
+  broker_net:
+    external: true
+    name: broker_net
